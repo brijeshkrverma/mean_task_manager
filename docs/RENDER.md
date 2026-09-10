@@ -302,6 +302,7 @@ commented block wapas uncomment kar dein aur
 | Frontend khulta hai par login pe error | Step 6 nahi kiya — rewrite me galat API URL |
 | API se JSON ki jagah HTML aa raha hai | `/*` wala route upar chala gaya hai. Wo hamesha sabse aakhir me |
 | Pehli request 40 second leti hai | Free service so gayi thi. Normal hai |
+| `getaddrinfo ENOTFOUND red-xxxxxxxx` (redis error) | Key Value aur API **alag region** me hain. Render ka private network sirf ek region ke andar kaam karta hai. `render.yaml` me dono ka `region` same hona chahiye — aur region badalne ke liye service **delete karke dobara banani padti hai** |
 | Worker deploy nahi ho raha | Worker free plan pe nahi chalta, paid plan chahiye |
 | Jobs process nahi ho rahe | Worker block comment kiya hua hai, ya uska MONGO_URI api se alag hai |
 

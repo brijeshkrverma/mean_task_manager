@@ -43,6 +43,13 @@ services:
   - name: mtm-keyvalue
     type: keyvalue
     plan: free
+    # 🔴 REGION MTM-API SE MATCH HONA ZAROORI HAI.
+    #    Render ka private network sirf ek hi region ke andar kaam karta
+    #    hai. Ye line pehle nahi thi, to Key Value default region (Oregon)
+    #    me ban gayi jabki api singapore me thi — aur api ye error deti rahi:
+    #      getaddrinfo ENOTFOUND red-xxxxxxxx
+    #    Internal hostname resolve hi nahi hota tha.
+    region: singapore
     # Sirf hamari apni services isse baat kar sakti hain, internet se nahi.
     # Khali list ka matlab "koi public access nahi".
     ipAllowList: []
