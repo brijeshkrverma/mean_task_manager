@@ -1,33 +1,131 @@
+# ============================================================================
+#  CI  —  "kya ye code sahi hai?"
+# ============================================================================
+#  Ye workflow kuch bhi DEPLOY nahi karta. Iska ek hi kaam hai: code ko
+#  check karna aur green/red batana. Deploy karna deploy.yml ka kaam hai,
+#  aur wo tabhi chalta hai jab ye workflow green ho.
+#
+#  Ek "workflow" = ek YAML file. Usme "jobs" hote hain. Har job ek alag
+#  fresh Linux machine (runner) pe chalti hai — jobs aapas me files share
+#  NAHI karti. Har job me "steps" hote hain, jo upar se neeche chalte hain.
+#  Koi bhi step fail hua to us job ke baaki steps skip ho jaate hain.
+# ============================================================================
+
+# GitHub ke Actions tab me is workflow ka jo naam dikhega.
 name: CI
 
+# ---------------------------------------------------------------------------
+#  on:  =  ye workflow KAB chalega
+# ---------------------------------------------------------------------------
 on:
   push:
-    branches: [main]
+    # Sirf in teen long-lived branches pe push hone par.
+    # Feature branches pe push karne se CI nahi chalega — unke liye niche
+    # wala pull_request trigger kaam karta hai (warna har feature push pe
+    # do baar CI chalta: ek push se, ek PR se — bilkul waste).
+    branches: [main, staging, develop]
   pull_request:
+    # Jab bhi in branches ko target karti koi PR khule ya update ho.
+    # Ye sabse important trigger hai: merge se PEHLE code check ho jaata hai.
+    branches: [main, staging, develop]
 
+# ---------------------------------------------------------------------------
+#  permissions:  =  is workflow ke GITHUB_TOKEN ko kitni power milegi
+# ---------------------------------------------------------------------------
+#  Har run ko GitHub ek temporary token deta hai. Default me usme zaroorat
+#  se zyada permissions hoti hain. Yaha hum sab kuch band karke sirf
+#  "code padh sakte ho" de rahe hain. Agar koi malicious dependency CI me
+#  chal bhi jaye, to wo aapke repo me kuch likh nahi sakti.
+#  Jis job ko zyada chahiye wo apne level pe maang legi (neeche docker job).
+permissions:
+  contents: read
+
+# ---------------------------------------------------------------------------
+#  concurrency:  =  ek hi cheez ke do run ek saath na chalein
+# ---------------------------------------------------------------------------
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # "group" ek naam hai. Same group ke runs ek dusre ko affect karte hain.
+  # github.workflow = "CI", github.ref = branch ka naam.
+  # To har branch ka apna alag group banta hai — develop ka run staging ke
+  # run ko touch nahi karega.
+  group: ci-${{ github.workflow }}-${{ github.ref }}
 
+  # cancel-in-progress: naya run aane par purana cancel kar do?
+  #   Feature branch / PR pe  -> HAAN. Aapne 3 commits jaldi-jaldi push kiye,
+  #                              to sirf aakhri wala matter karta hai.
+  #                              Paisa aur waqt dono bachta hai.
+  #   main/staging/develop pe -> NAHI. In branches ka har commit ek record
+  #                              hai ki "ye commit green tha ya nahi", aur
+  #                              deploy inhi results pe depend karta hai.
+  #                              Cancel karne se wo history me hole ban jaata.
+  cancel-in-progress: >-
+    ${{ !contains(fromJSON('["refs/heads/main","refs/heads/staging","refs/heads/develop"]'), github.ref) }}
+
+# ---------------------------------------------------------------------------
+#  jobs:  =  asli kaam
+# ---------------------------------------------------------------------------
+#  Neeche ki api / worker / web / audit jobs me koi "needs:" nahi hai, iska
+#  matlab ye chaaro EK SAATH (parallel) chalti hain. Sabse aakhir wali
+#  docker job me "needs:" hai, to wo baaki ke green hone ka intezaar karti hai.
 jobs:
+
+  # =========================================================================
+  #  JOB 1 — API : backend ke unit tests
+  # =========================================================================
   api:
-    name: API
-    runs-on: ubuntu-latest
+    name: API                 # Actions tab me is job ka display naam
+    runs-on: ubuntu-latest    # GitHub ki free Linux machine
+    timeout-minutes: 10       # 10 min se zyada laga to maar do. Bina iske ek
+                              # atka hua job 6 GHANTE tak chal sakta hai aur
+                              # aapke free minutes kha jaata hai.
     steps:
+      # "uses:" = kisi aur ka banaya hua ready-made step chalao.
+      # actions/checkout = aapka repo runner pe clone karta hai. Iske bina
+      # machine bilkul khali hoti hai — aapka code wahan hota hi nahi.
+      # @v4 = version pin. Version pin karna zaroori hai, warna action ka
+      # naya version aapka pipeline bina warning ke tod sakta hai.
       - uses: actions/checkout@v4
+
+      # Runner pe Node install karo.
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          # cache: npm  ->  node_modules ka download GitHub ke cache me save
+          # karo. Pehli baar slow, uske baad har run me ~30-60 sec bachte hain.
           cache: npm
+          # Monorepo (ek repo me 3 packages) me ye line ZAROORI hai. Isse
+          # cache ki "key" api/package-lock.json ke hash se banti hai. Iske
+          # bina teeno packages ek hi cache share karke ek dusre ka
+          # node_modules corrupt kar dete.
           cache-dependency-path: api/package-lock.json
+
+      # "run:" = shell command chalao.
+      # npm ci (npm install NAHI):
+      #   - package-lock.json ko exactly follow karta hai, versions badalta nahi
+      #   - node_modules pehle delete karta hai -> har run bilkul saaf
+      #   - lockfile aur package.json match na karein to fail hota hai
+      #   CI me hamesha `npm ci`, kabhi `npm install` nahi.
       - run: npm ci
-        working-directory: api
-      - run: npm test
+        # working-directory = is command ko kis folder me chalao. Har step
+        # default me repo root se shuru hota hai.
         working-directory: api
 
+      - run: npm test
+        working-directory: api
+        env:
+          # Auth middleware ke tests token sign/verify karte hain, to unhe
+          # ek secret chahiye. Ye FAKE value hai, sirf test ke liye.
+          # Asli production secret kabhi is file me nahi aata — wo GitHub
+          # Secrets me rehta hai (deploy.yml me dekhein).
+          JWT_SECRET: ci-placeholder-secret
+
+  # =========================================================================
+  #  JOB 2 — Worker : background job processor
+  # =========================================================================
   worker:
     name: Worker
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -37,12 +135,20 @@ jobs:
           cache-dependency-path: worker/package-lock.json
       - run: npm ci
         working-directory: worker
-      - run: node --check index.js
+      # Worker ka `npm test` abhi sirf `node --check index.js` hai — matlab
+      # "syntax valid hai?". Ye asli test NAHI hai, ye sabse kam coverage
+      # wala hissa hai. Jab worker ke real tests likhein, sirf package.json
+      # ka test script badalna hoga, ye file waisi ki waisi rahegi.
+      - run: npm test
         working-directory: worker
 
+  # =========================================================================
+  #  JOB 3 — Web : Angular frontend
+  # =========================================================================
   web:
     name: Web
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -52,16 +158,108 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: npm ci
         working-directory: web
-      - run: npm run build
+
+      # Yaha SIRF typecheck hota hai, poora `ng build` nahi.
+      # Kyun? Kyunki asli production build already web/Dockerfile ke andar
+      # hota hai, aur wo neeche docker job me chalta hai. Dono jagah build
+      # karne se ek hi Angular bundle do baar banta — pura time waste.
+      # tsc --noEmit type errors pakad leta hai aur bahut fast hai.
+      - run: npm run typecheck
         working-directory: web
 
+  # =========================================================================
+  #  JOB 4 — Audit : known security vulnerabilities check
+  # =========================================================================
+  audit:
+    name: Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    # continue-on-error: fail hone par bhi poore run ko red mat karo.
+    # ⚠️ Ye TEMPORARY hai. Abhi web ke Angular 18 runtime deps me 8 high
+    # severity advisories khuli hain (XSS + DoS), aur unka fix Angular 19+
+    # major upgrade maangta hai. Jab tak wo upgrade nahi hota, ye job ko
+    # blocking banane ka matlab hoga CI hamesha red.
+    # 👉 Angular upgrade hote hi ye line DELETE kar dena — tabhi ye asli
+    #    security gate banega.
+    continue-on-error: true
+
+    # strategy.matrix = ek hi job ko alag-alag values ke saath kai baar chalao.
+    # Neeche ki definition se 3 parallel jobs banti hain:
+    # "Audit (api)", "Audit (worker)", "Audit (web)". Copy-paste se bachne
+    # ka saaf tareeka.
+    strategy:
+      # fail-fast: false -> ek package fail ho to baaki cancel mat karo.
+      # Hume teeno ki report chahiye, sirf pehle failure ki nahi.
+      fail-fast: false
+      matrix:
+        package: [api, worker, web]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      # --omit=dev : sirf wo dependencies check karo jo asli me production
+      #   image ke andar jaati hain. Build tools (Angular CLI, webpack,
+      #   nodemon) sirf developer ki machine pe chalte hain, user ke saamne
+      #   kabhi nahi aate — unke advisories asli risk nahi hain.
+      # --audit-level=high : low/moderate ignore karo, high aur critical pe
+      #   hi fail ho. Warna noise itna hota hai ki log dekhna band kar dete.
+      - run: npm audit --omit=dev --audit-level=high
+        # ${{ matrix.package }} har matrix run me api / worker / web ban jaata hai.
+        working-directory: ${{ matrix.package }}
+
+  # =========================================================================
+  #  JOB 5 — Docker build : sab kuch milkar image me build hota hai?
+  # =========================================================================
   docker:
     name: Docker build
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # needs: = ye job tabhi shuru hogi jab ye teeno jobs GREEN ho jayein.
+    # Koi ek bhi fail hui to ye job "skipped" ho jaayegi.
+    # Ye deliberate hai: Docker build sabse mehenga step hai, use tabhi
+    # chalao jab basic checks pass ho chuke ho.
+    # NOTE: audit yaha jaan-boojh kar nahi hai — wo abhi advisory-only hai,
+    # to use gate banane ka koi matlab nahi.
     needs: [api, worker, web]
+
+    # Top wali `permissions: contents: read` ko is job ke liye override
+    # kar rahe hain. actions: write isliye chahiye kyunki buildx apna
+    # layer cache GitHub ke Actions cache me LIKHTA hai (sirf padhta nahi).
+    permissions:
+      contents: read
+      actions: write
+
     steps:
       - uses: actions/checkout@v4
+
+      # Buildx = Docker ka advanced builder. Ye isliye chahiye kyunki
+      # normal `docker build` GitHub ke cache me layers save nahi kar sakta.
+      - uses: docker/setup-buildx-action@v3
+
       - name: Build all images
-        run: docker compose build
+        # `docker buildx bake` wahi docker-compose.yml padhta hai aur usme
+        # jitne bhi services me `build:` likha hai (api, web, worker) un
+        # sabki image banata hai. mongo aur redis skip ho jaate hain kyunki
+        # wo ready-made images use karte hain, build nahi karte.
+        #
+        # cache-from=type=gha : pichle run ki layers GitHub cache se utha lo
+        # cache-to=type=gha   : is run ki layers cache me save kar do
+        # mode=max            : sirf final layers nahi, intermediate bhi save
+        #                       karo (multi-stage Dockerfile me bada farak)
+        #
+        # Iske bina har run me poora `npm ci` + `ng build` scratch se hota
+        # hai. Iske saath, agar dependencies nahi badli to wo layers cache
+        # se aa jaati hain.
+        run: |
+          docker buildx bake -f docker-compose.yml \
+            --set '*.cache-from=type=gha' \
+            --set '*.cache-to=type=gha,mode=max'
         env:
+          # docker-compose.yml me `JWT_SECRET: ${JWT_SECRET:?...}` likha hai.
+          # Wo `:?` ka matlab hai "ye variable set nahi to error do". Build
+          # ke waqt secret ki asli value ki koi zaroorat nahi hoti, isliye
+          # yaha dummy value de rahe hain sirf compose ko khush karne ke liye.
           JWT_SECRET: ci-placeholder-secret

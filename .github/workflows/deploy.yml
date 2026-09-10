@@ -1,41 +1,253 @@
+# ============================================================================
+#  Deploy  —  "green code ko server pe bhejo"
+# ============================================================================
+#  Ye workflow code ko TEST nahi karta. Wo ci.yml ka kaam hai. Ye sirf
+#  already-green code ko uthata hai aur server pe deploy karta hai.
+#
+#  Teen branch, teen server:
+#
+#     develop  ──►  development server   (roz ke merges, tootne ki chhoot)
+#     staging  ──►  staging server       (production jaisa, final testing)
+#     main     ──►  production server    (asli users)
+#
+#  Code hamesha EK hi direction me chalta hai:
+#     feature/xyz ──PR──► develop ──PR──► staging ──PR──► main
+#  Ulta kabhi nahi. main pe hotfix karna pade to wahan se develop me
+#  back-merge karna zaroori hai, warna wo fix agle release me gum ho jaayega.
+# ============================================================================
+
 name: Deploy
 
+# ---------------------------------------------------------------------------
+#  on:  =  deploy KAB hoga
+# ---------------------------------------------------------------------------
 on:
-  workflow_run:
-    workflows: [CI]
-    branches: [main]
-    types: [completed]
-  workflow_dispatch:
+  # ⚠️ AUTOMATIC TRIGGER ABHI BAND HAI — jaan-boojh kar.
+  #
+  # Aap Render use kar rahe hain (render.yaml dekhein). Render khud git se
+  # deploy karta hai, to ye SSH-wala workflow abhi chahiye hi nahi. Iska
+  # automatic trigger chaalu rehne se har push pe ye fail hota — kyunki
+  # DEPLOY_HOST/DEPLOY_SSH_KEY jaise secrets set hi nahi hain. Aur roz-roz
+  # red ❌ dekhne se aadmi red ko ignore karna seekh jaata hai, jo CI ka
+  # sabse bada nuksaan hai.
+  #
+  # Ye file isliye rakhi hai kyunki kal aap apne VPS pe shift ho sakte hain.
+  # Tab neeche wala block uncomment karein aur secrets bhar dein:
+  #
+  # workflow_run:
+  #   workflows: [CI]                      # ci.yml ka `name:` field, exactly
+  #   branches: [main, staging, develop]   # in teeno branches ka CI dekho
+  #   types: [completed]                   # jab CI khatam ho (pass ya fail)
+  #
+  # Tab tak ye sirf manual button se chalega (neeche workflow_dispatch).
 
-concurrency:
-  group: deploy-production
-  cancel-in-progress: false
+  # Manual button: Actions tab ▸ Deploy ▸ "Run workflow".
+  # Kaam aata hai jab server crash hua ho, ya rollback karna ho, aur aap
+  # bina naya commit kiye dobara deploy karna chahte ho.
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Kahan deploy karna hai'
+        required: true
+        default: staging      # Safe default. Production galti se na chale.
+        type: choice
+        options: [development, staging, production]
+
+# GITHUB_TOKEN ko sirf code padhne do. Deploy ka asli access SSH key se
+# aata hai (neeche secrets me), GitHub token se nahi.
+permissions:
+  contents: read
 
 jobs:
-  deploy:
-    name: Deploy to production
+
+  # =========================================================================
+  #  JOB 1 — Resolve : "kis environment me deploy karna hai?"
+  # =========================================================================
+  #  Ye ek chhoti si job hai jo sirf SOCHTI hai, deploy kuch nahi karti.
+  #  Zaroorat kyun? Kyunki branch ka naam ("main") aur environment ka naam
+  #  ("production") alag-alag hain, aur ye mapping ek jagah likhi honi
+  #  chahiye — teen jagah copy-paste karke nahi.
+  resolve:
+    name: Resolve target
     runs-on: ubuntu-latest
-    # workflow_run also fires on failed CI runs; only ship green ones.
+    timeout-minutes: 5
+
+    # if: = ye job chalegi ya skip hogi.
+    # workflow_run har CI ke baad firta hai — FAIL hui CI ke baad bhi!
+    # Isliye ye check bahut zaroori hai: sirf `success` wali CI deploy ho.
+    # (Manual run me ye check lagta hi nahi, wo aapki apni marzi hai.)
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event.workflow_run.conclusion == 'success'
-    environment: production
+
+    # outputs: = is job ki nikaali hui values agli job ko de do.
+    # Jobs alag machines pe chalti hain, to variables apne aap share nahi
+    # hote — outputs hi ek tareeka hai.
+    outputs:
+      environment: ${{ steps.pick.outputs.environment }}
+      branch: ${{ steps.pick.outputs.branch }}
+
+    steps:
+      - id: pick     # id isliye taaki upar outputs me `steps.pick` likh sakein
+        name: Map branch to environment
+        env:
+          # Do alag trigger, do alag jagah se info aati hai:
+          #   workflow_run se     -> event.workflow_run.head_branch
+          #   manual dispatch se  -> event.inputs.environment
+          # Dono ko shell variable me daal rahe hain (seedhe script me
+          # ${{ }} likhna bura habit hai — branch name me kuch bhi ho sakta
+          # hai aur wo script injection ban sakta hai).
+          SRC_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          MANUAL_ENV: ${{ github.event.inputs.environment }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "${MANUAL_ENV:-}" ]; then
+            # ---- Manual run: user ne environment khud chuna hai ----
+            environment="$MANUAL_ENV"
+            case "$environment" in
+              production)  branch=main    ;;
+              staging)     branch=staging ;;
+              development) branch=develop ;;
+            esac
+          else
+            # ---- Automatic run: branch se environment nikaalo ----
+            branch="$SRC_BRANCH"
+            case "$branch" in
+              main)    environment=production  ;;
+              staging) environment=staging     ;;
+              develop) environment=development ;;
+              *)
+                # Yaha aana nahi chahiye (upar branches filter hai), par
+                # defensive check hamesha rakhein — anjaan branch production
+                # pe chali jaye, isse bura kuch nahi.
+                echo "::error::Unknown branch '$branch' — deploy nahi karunga."
+                exit 1
+                ;;
+            esac
+          fi
+
+          echo "Branch '$branch' ──► environment '$environment'"
+
+          # $GITHUB_OUTPUT ek special file hai. Isme "key=value" likhne se
+          # wo value is step ka output ban jaati hai.
+          echo "environment=$environment" >> "$GITHUB_OUTPUT"
+          echo "branch=$branch"           >> "$GITHUB_OUTPUT"
+
+  # =========================================================================
+  #  JOB 2 — Deploy : asli kaam
+  # =========================================================================
+  deploy:
+    # Job ka naam dynamic hai, to Actions tab me seedhe dikhta hai ki kis
+    # environment me ja raha hai.
+    name: Deploy to ${{ needs.resolve.outputs.environment }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: resolve      # resolve job ke outputs chahiye, to uska wait karo
+
+    # ---------------------------------------------------------------------
+    #  environment:  =  GitHub Environments feature (ye sabse important line)
+    # ---------------------------------------------------------------------
+    #  Repo ▸ Settings ▸ Environments me aap 3 environments banate ho:
+    #  development, staging, production. Har ek ke apne SECRETS hote hain
+    #  — same naam, alag value.
+    #
+    #  Iska matlab: neeche `secrets.DEPLOY_HOST` likha hai bas ek baar, par
+    #  production run me wo production server ka IP uthata hai aur staging
+    #  run me staging ka. Aapko workflow me koi if-else nahi likhna padta.
+    #
+    #  Bonus: production environment pe aap "Required reviewers" laga sakte
+    #  ho — phir production deploy tab tak rukta hai jab tak koi insaan
+    #  approve na kare. Team ke saath ye zaroori safety net hai.
+    environment: ${{ needs.resolve.outputs.environment }}
+
+    # ---------------------------------------------------------------------
+    #  concurrency: yahan cancel-in-progress FALSE hona hi chahiye
+    # ---------------------------------------------------------------------
+    #  Group me environment ka naam hai, to staging aur production deploy
+    #  ek dusre ko block nahi karte — par do production deploy ek saath
+    #  kabhi nahi chalenge (wo server ki state corrupt kar dete).
+    #
+    #  cancel-in-progress: false kyun? Aadha-chala hua deploy cancel karna
+    #  server ko toota hua chhod deta hai — kuch container naye, kuch purane.
+    #  CI cancel karna safe hai, deploy cancel karna NAHI.
+    concurrency:
+      group: deploy-${{ needs.resolve.outputs.environment }}
+      cancel-in-progress: false
+
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Deploy script repo se chalti hai, par hume us BRANCH ka version
+          # chahiye jiska CI abhi green hua — default branch ka nahi.
+          ref: ${{ needs.resolve.outputs.branch }}
 
+      # -------------------------------------------------------------------
+      #  SSH setup — runner ko server me ghusne ki chaabi do
+      # -------------------------------------------------------------------
       - name: Set up SSH
+        env:
+          # secrets.* ki values logs me automatically *** ho jaati hain.
+          # Ye secrets aap Settings ▸ Environments ▸ <naam> ▸ Secrets me
+          # daalte ho — repo-level secrets me NAHI, warna production ki key
+          # staging run ko bhi mil jaayegi.
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
         run: |
+          set -euo pipefail
           mkdir -p ~/.ssh
-          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
 
+          # Private key file me likho aur permissions kaso. SSH 600 se
+          # dheeli permissions wali key ko reject kar deta hai.
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+          # ssh-keyscan = server ka public fingerprint pehle se le lo.
+          # Iske bina SSH pehli baar "Are you sure you want to continue?"
+          # poochta hai, aur CI me koi jawab dene wala nahi hota — job atak
+          # jaati hai jab tak timeout na ho.
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+      # -------------------------------------------------------------------
+      #  Asli deploy — kaam ops/deploy.sh karta hai
+      # -------------------------------------------------------------------
+      #  Logic script me hai, workflow me nahi. Fayda: aap wahi script apne
+      #  laptop se bhi chala sakte ho debug karne ke liye. Agar ye saara
+      #  logic YAML me hota to sirf GitHub pe hi chalta.
+      #
+      #  Script kya karti hai: server pe SSH ▸ git fetch + reset --hard ▸
+      #  docker compose build ▸ docker compose up -d ▸ /health/ready poll
+      #  karo ▸ 60 sec me ready na ho to logs dikha ke FAIL.
       - name: Run deploy
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-          DEPLOY_BRANCH: main
+          # Server ko batao ki kaunsi branch checkout karni hai. Pehle ye
+          # hardcoded "main" tha — 3-branch setup me wo galat hota, staging
+          # server pe bhi main hi deploy ho jaata.
+          DEPLOY_BRANCH: ${{ needs.resolve.outputs.branch }}
         run: |
           chmod +x ops/deploy.sh
           ops/deploy.sh
+
+      # -------------------------------------------------------------------
+      #  Summary — run ke page pe padhne layak note chhod do
+      # -------------------------------------------------------------------
+      #  $GITHUB_STEP_SUMMARY me likha markdown run ke summary page pe
+      #  dikhta hai. Logs kholne ki zaroorat nahi padti.
+      #  `if: always()` = ye step fail hone par BHI chale, taaki fail hua
+      #  deploy bhi record ho jaye.
+      - name: Write summary
+        if: always()
+        run: |
+          {
+            echo "### Deploy: ${{ job.status }}"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Environment | \`${{ needs.resolve.outputs.environment }}\` |"
+            echo "| Branch | \`${{ needs.resolve.outputs.branch }}\` |"
+            echo "| Commit | \`${{ github.sha }}\` |"
+            echo "| Trigger | \`${{ github.event_name }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

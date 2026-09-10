@@ -31,7 +31,11 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      MONGO_URI: mongodb://mongo:27017/${MONGO_DB:-task_manager}
+      # .env me MONGO_URI set hai (Atlas) to wahi use hoga; nahi to neeche
+      # wala local `mongo` container. Atlas pe chalana ho to .env me
+      # MONGO_URI rakhein, local container pe chalana ho to use comment
+      # kar dein — code me kuch badalne ki zaroorat nahi.
+      MONGO_URI: ${MONGO_URI:-mongodb://mongo:27017/task_manager}
       REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
@@ -51,7 +55,10 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      MONGO_URI: mongodb://mongo:27017/${MONGO_DB:-task_manager}
+      # api ke saath bilkul same value — dono ka ek hi database hona zaroori
+      # hai, warna worker khali collection me jhaankta rahega aur koi error
+      # bhi nahi aayega.
+      MONGO_URI: ${MONGO_URI:-mongodb://mongo:27017/task_manager}
       REDIS_URL: redis://redis:6379
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-5}
       LOG_LEVEL: ${LOG_LEVEL:-info}

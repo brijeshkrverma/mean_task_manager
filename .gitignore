@@ -1,13 +1,60 @@
+# ---------------------------------------------------------------------------
+# Dependencies — hamesha lockfile se dobara ban jaate hain
+# ---------------------------------------------------------------------------
 node_modules/
+
+# ---------------------------------------------------------------------------
+# Build output — source se generate hota hai, commit karne ki zaroorat nahi
+# ---------------------------------------------------------------------------
 dist/
 out-tsc/
 .angular/
-backups/
-*.log
+*.tsbuildinfo
 
+# ---------------------------------------------------------------------------
+# Test output
+# ---------------------------------------------------------------------------
+coverage/
+.nyc_output/
+
+# ---------------------------------------------------------------------------
+# Secrets — ye galti se commit hui to badalna hi padega
+# ---------------------------------------------------------------------------
+# .env me asli passwords aur JWT_SECRET hote hain. .env.example template hai,
+# wo track hoti hai (isliye neeche negate kiya hai).
 .env
 .env.*
 !.env.example
 
+# SSH keys aur TLS certs. Deploy SSH key se hota hai, to ye kabhi bhi galti se
+# repo folder me aa sakti hai — GitHub secrets me hi rehni chahiye.
+*.pem
+*.key
+*.crt
+*.p12
+id_rsa*
+id_ed25519*
+
+# ---------------------------------------------------------------------------
+# Ops — ops/backup.sh yahan DB dumps likhti hai
+# ---------------------------------------------------------------------------
+backups/
+
+# ---------------------------------------------------------------------------
+# Logs
+# ---------------------------------------------------------------------------
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# ---------------------------------------------------------------------------
+# Editor / OS ka kachra
+# ---------------------------------------------------------------------------
+# `.vscode/` likhne se andar ki koi file wapas include nahi ho sakti — git
+# excluded directory ke andar jhaankta hi nahi. Isliye `.vscode/*`.
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
 .DS_Store
 Thumbs.db

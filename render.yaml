@@ -1,0 +1,220 @@
+# ============================================================================
+#  Render Blueprint  —  infrastructure as code
+# ============================================================================
+#  Ye file wahi kaam Render pe karti hai jo docker-compose.yml local pe
+#  karta hai: saari services ek jagah declare. Dashboard se manually service
+#  banane ke bajaye Render ye file padh kar sab khud bana deta hai.
+#
+#  PR Previews aur Auto-Deploy SIRF Blueprint wale repos me milte hain —
+#  isiliye ye file zaroori hai (dashboard ka wo message yahi keh raha tha).
+#
+#  Setup: Render Dashboard ▸ New ▸ Blueprint ▸ ye repo chunein.
+#  Poora guide: docs/RENDER.md
+# ============================================================================
+
+# ---------------------------------------------------------------------------
+#  previews: har pull request pe ek poora temporary environment
+# ---------------------------------------------------------------------------
+#  PR khulte hi Render neeche ki saari services ka ek alag copy bana deta hai,
+#  apne alag URL pe. PR band/merge hote hi wo sab apne aap delete ho jaata hai.
+#  Reviewer ko code padhne ke bajaye chalta hua app milta hai.
+previews:
+  generation: automatic
+  expireAfterDays: 5      # bhoole hue previews paisa na khaayein
+
+services:
+
+  # =========================================================================
+  #  1. Key Value (Redis) — BullMQ ka queue yahan rehta hai
+  # =========================================================================
+  #  Render "Key Value" bolta hai, hai ye Redis-compatible. Isliye ioredis
+  #  aur BullMQ bina kisi code change ke chal jaate hain.
+  - name: mtm-keyvalue
+    type: keyvalue
+    plan: free
+    # Sirf hamari apni services isse baat kar sakti hain, internet se nahi.
+    # Khali list ka matlab "koi public access nahi".
+    ipAllowList: []
+
+    # ⚠️ Free Key Value IN-MEMORY ONLY hai — restart pe saara data udd jaata
+    #    hai. Queue me pade jobs bhi. Dev/staging ke liye theek hai;
+    #    production me paid plan lena hoga.
+
+  # =========================================================================
+  #  2. API — Express backend
+  # =========================================================================
+  - name: mtm-api
+    type: web
+    runtime: docker
+    plan: free
+    region: singapore          # India ke users ke liye sabse kam latency
+
+    # Wahi Dockerfile jo local pe use hoti hai — ek hi build process,
+    # to "mere laptop pe to chal raha tha" wali problem nahi aati.
+    dockerfilePath: ./api/Dockerfile
+    dockerContext: ./api
+
+    # autoDeployTrigger: deploy kab ho
+    #   commit     = har push pe turant (CI ka intezaar nahi)
+    #   checksPass = GitHub checks green hone ke BAAD  ← ye chahiye
+    #   off        = sirf manual
+    # checksPass hamare ci.yml ke saath perfectly fit baithta hai: pehle
+    # API/Worker/Web/Docker build pass honge, tabhi Render deploy karega.
+    autoDeployTrigger: checksPass
+
+    # Render is path ko poll karta hai. 200 nahi mila to deploy ko FAIL
+    # maan kar purana version chalta rehta hai (zero-downtime rollback).
+    # /health/ready mongo + redis dono check karta hai — matlab galat
+    # MONGO_URI wala deploy kabhi live nahi ho paayega. Yahi chahiye.
+    healthCheckPath: /health/ready
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+      # MongoDB ka connection string.
+      # sync: false ka matlab: value is file me NAHI hai, aap Render
+      # dashboard me daalenge. Ye zaroori hai kyunki isme password hota hai
+      # aur ye file public repo me hai.
+      # MongoDB Atlas se milega — docs/RENDER.md dekhein.
+      - key: MONGO_URI
+        sync: false
+
+      # Redis ka URL Render khud bhar dega, upar wali keyvalue service se.
+      # Aapko copy-paste kuch nahi karna, aur service recreate hone par ye
+      # apne aap update ho jaata hai.
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: mtm-keyvalue
+          property: connectionString
+
+      # generateValue: true — Render ek strong random value banata hai,
+      # ek baar. Kisi insaan ne kabhi dekha nahi, to leak bhi nahi hoga.
+      # ⚠️ api aur worker dono ko SAME secret chahiye — isliye worker me
+      #    isse fromService se copy kiya gaya hai (neeche dekhein).
+      - key: JWT_SECRET
+        generateValue: true
+
+      - key: JWT_EXPIRES_IN
+        value: 1d
+
+      - key: LOG_LEVEL
+        value: info
+
+      - key: TASK_QUEUE_NAME
+        value: task-events
+
+      - key: ENQUEUE_TIMEOUT_MS
+        value: "2000"
+
+      # Frontend static site se aata hai aur usi origin pe /api hit karta
+      # hai (routes rewrite ki wajah se), to CORS ki zaroorat nahi padti.
+      # Fir bhi rakha hai taaki API ko seedha call karna ho to kaam kare.
+      - key: CORS_ORIGIN
+        fromService:
+          type: web
+          name: mtm-web
+          property: host
+
+  # =========================================================================
+  #  3. Worker — background job processor
+  # =========================================================================
+  #  ⚠️ BACKGROUND WORKERS RENDER PE FREE NAHI HAIN.
+  #     Free instances sirf web services, static sites, Postgres aur
+  #     Key Value ko milte hain. Ye service paid plan maangegi (~$7/mo).
+  #
+  #     Abhi paisa nahi kharch karna? Is poore block ko comment kar dein —
+  #     baaki sab free chalta rahega. API tab bhi queue me jobs daalti
+  #     rahegi, unhe uthane wala koi nahi hoga. Jab worker chalu karenge
+  #     tab pending jobs process ho jayengi.
+  - name: mtm-worker
+    type: worker
+    runtime: docker
+    plan: starter
+    region: singapore
+    dockerfilePath: ./worker/Dockerfile
+    dockerContext: ./worker
+    autoDeployTrigger: checksPass
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+      # API wali hi Mongo. Dono jagah alag-alag paste karna padta hai
+      # (sync: false secrets share nahi hote), to dhyan rakhein ki value
+      # bilkul same ho.
+      - key: MONGO_URI
+        sync: false
+
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: mtm-keyvalue
+          property: connectionString
+
+      - key: WORKER_CONCURRENCY
+        value: "5"
+
+      - key: TASK_QUEUE_NAME
+        value: task-events
+
+      - key: LOG_LEVEL
+        value: info
+
+  # =========================================================================
+  #  4. Web — Angular frontend
+  # =========================================================================
+  #  Ye Docker/nginx service NAHI hai, "static site" hai. Kyun?
+  #    - hamesha free, aur expire nahi hoti
+  #    - CDN pe serve hoti hai, to duniya bhar me fast
+  #    - free web service 15 min inactivity ke baad SO jaati hai; static
+  #      site kabhi nahi soti
+  #  Angular ek SPA hai — bani hui files hi to hain, unhe serve karne ke
+  #  liye poora container chalane ki koi zaroorat nahi.
+  #
+  #  web/Dockerfile aur nginx/ ab bhi local docker-compose ke liye zaroori
+  #  hain — unhe delete mat karna.
+  - name: mtm-web
+    type: web
+    runtime: static
+    rootDir: web                 # saare commands is folder me chalenge
+    buildCommand: npm ci && npm run build
+    # Angular 18 ka output yahan aata hai (angular.json me outputPath
+    # "dist/web" hai, aur Angular khud uske andar browser/ banata hai).
+    staticPublishPath: dist/web/browser
+    autoDeployTrigger: checksPass
+
+    routes:
+      # -------------------------------------------------------------------
+      # /api/* ko backend pe bhej do.
+      # -------------------------------------------------------------------
+      # Angular code same-origin `/api/tasks` call karta hai (dekhein
+      # web/src/app/tasks/task.service.ts). Local pe nginx ye proxy karta
+      # hai; Render pe ye rewrite rule wahi kaam karta hai. Isse browser ke
+      # liye sab kuch ek hi domain pe rehta hai — CORS ka jhanjhat khatam.
+      #
+      # 🔴 PEHLE DEPLOY KE BAAD YE URL THEEK KARNA HOGA.
+      #    Render service ke naam ke saath random suffix laga sakta hai
+      #    agar naam pehle se kisi ne le rakha ho. mtm-api ka asli URL
+      #    dashboard se copy karke yahan paste karein, phir commit karein.
+      #    Guide: docs/RENDER.md ▸ "Step 6"
+      - type: rewrite
+        source: /api/*
+        destination: https://mtm-api.onrender.com/api/*
+
+      - type: rewrite
+        source: /health/*
+        destination: https://mtm-api.onrender.com/health/*
+
+      # -------------------------------------------------------------------
+      # Angular client-side routing ka fallback — ye HAMESHA aakhir me
+      # -------------------------------------------------------------------
+      # User seedha /tasks/123 kholta hai to server pe aisi koi file nahi
+      # hai. Ye rule index.html de deta hai aur Angular router aage sambhal
+      # leta hai. Iske bina har refresh pe 404 aayega.
+      # Rules upar se neeche match hote hain, to ye upar rakh diya to /api
+      # bhi index.html bhej dega aur poori app tut jaayegi.
+      - type: rewrite
+        source: /*
+        destination: /index.html
