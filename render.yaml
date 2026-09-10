@@ -228,11 +228,11 @@ services:
       #    Guide: docs/RENDER.md ▸ "Step 6"
       - type: rewrite
         source: /api/*
-        destination: https://mtm-api.onrender.com/api/*
+        destination: https://mtm-api-s229.onrender.com/api/*
 
       - type: rewrite
         source: /health/*
-        destination: https://mtm-api.onrender.com/health/*
+        destination: https://mtm-api-s229.onrender.com/health/*
 
       # -------------------------------------------------------------------
       # Angular client-side routing ka fallback — ye HAMESHA aakhir me

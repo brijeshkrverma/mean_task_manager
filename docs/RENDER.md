@@ -147,7 +147,7 @@ Save karte hi service redeploy hogi. Ab `mtm-api` green honi chahiye.
 `mtm-api` ka URL kholein (dashboard me upar dikhta hai):
 
 ```
-https://mtm-api-xxxx.onrender.com/health/ready
+https://mtm-api-s229.onrender.com/health/ready
 ```
 
 Ye milna chahiye:
@@ -167,8 +167,9 @@ Ye milna chahiye:
 **Ye step skip mat karna, warna frontend se koi API call kaam nahi karegi.**
 
 Render service ke naam ke saath random suffix laga deta hai agar wo naam
-pehle se kisi ne le rakha ho. `render.yaml` me abhi `https://mtm-api.onrender.com`
-likha hai, jo shayad aapka asli URL na ho.
+pehle se kisi ne le rakha ho. **Ye ho chuka hai** — asli URL `https://mtm-api-s229.onrender.com` hai aur
+wo `render.yaml` me daal diya gaya hai. Neeche wale steps sirf reference ke
+liye hain (agar kabhi service dobara banani pade to URL badal jaayega).
 
 1. `mtm-api` ka **asli** URL dashboard se copy karein
 2. [`render.yaml`](../render.yaml) me **dono** rewrite rules me wo URL daalein:
@@ -176,11 +177,11 @@ likha hai, jo shayad aapka asli URL na ho.
    ```yaml
    - type: rewrite
      source: /api/*
-     destination: https://mtm-api-xxxx.onrender.com/api/*   # ← apna URL
+     destination: https://mtm-api-s229.onrender.com/api/*   # ← apna URL
 
    - type: rewrite
      source: /health/*
-     destination: https://mtm-api-xxxx.onrender.com/health/*  # ← apna URL
+     destination: https://mtm-api-s229.onrender.com/health/*  # ← apna URL
    ```
 
 3. Commit + push. Render apne aap update kar lega.
