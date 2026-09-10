@@ -120,47 +120,56 @@ services:
   # =========================================================================
   #  3. Worker — background job processor
   # =========================================================================
-  #  ⚠️ BACKGROUND WORKERS RENDER PE FREE NAHI HAIN.
-  #     Free instances sirf web services, static sites, Postgres aur
-  #     Key Value ko milte hain. Ye service paid plan maangegi (~$7/mo).
+  #  🔴 YE SERVICE ABHI BAND HAI — jaan-boojh kar, paisa bachane ke liye.
   #
-  #     Abhi paisa nahi kharch karna? Is poore block ko comment kar dein —
-  #     baaki sab free chalta rahega. API tab bhi queue me jobs daalti
-  #     rahegi, unhe uthane wala koi nahi hoga. Jab worker chalu karenge
-  #     tab pending jobs process ho jayengi.
-  - name: mtm-worker
-    type: worker
-    runtime: docker
-    plan: starter
-    region: singapore
-    dockerfilePath: ./worker/Dockerfile
-    dockerContext: ./worker
-    autoDeployTrigger: checksPass
-
-    envVars:
-      - key: NODE_ENV
-        value: production
-
-      # API wali hi Mongo. Dono jagah alag-alag paste karna padta hai
-      # (sync: false secrets share nahi hote), to dhyan rakhein ki value
-      # bilkul same ho.
-      - key: MONGO_URI
-        sync: false
-
-      - key: REDIS_URL
-        fromService:
-          type: keyvalue
-          name: mtm-keyvalue
-          property: connectionString
-
-      - key: WORKER_CONCURRENCY
-        value: "5"
-
-      - key: TASK_QUEUE_NAME
-        value: task-events
-
-      - key: LOG_LEVEL
-        value: info
+  #  Render pe background workers ka koi free plan hota hi nahi. Free
+  #  instances sirf web services, static sites, Postgres aur Key Value ko
+  #  milte hain. Ye service chaalu karte hi ~$7/mo lagta.
+  #
+  #  Abhi kya hoga: API queue me jobs daalti rahegi (Key Value me pade
+  #  rahenge), par unhe uthane wala koi nahi hoga. Login, task CRUD —
+  #  app ka baaki sab kuch normal chalega.
+  #
+  #  ▶ CHAALU KAISE KAREIN (jab paid plan lena ho):
+  #    1. Neeche ke saare `# ` prefix hata dein (ye poora block uncomment)
+  #    2. Commit + push — Render Blueprint sync karke service bana dega
+  #    3. Render dashboard ▸ mtm-worker ▸ Environment ▸ MONGO_URI daalein,
+  #       bilkul wahi value jo mtm-api me hai
+  #    Queue me jama saare pending jobs tab process ho jayenge.
+  #
+  # - name: mtm-worker
+  #   type: worker
+  #   runtime: docker
+  #   plan: starter
+  #   region: singapore
+  #   dockerfilePath: ./worker/Dockerfile
+  #   dockerContext: ./worker
+  #   autoDeployTrigger: checksPass
+  #
+  #   envVars:
+  #     - key: NODE_ENV
+  #       value: production
+  #
+  #     # API wali hi Mongo. Dono jagah alag-alag paste karna padta hai
+  #     # (sync: false secrets share nahi hote), to dhyan rakhein ki value
+  #     # bilkul same ho.
+  #     - key: MONGO_URI
+  #       sync: false
+  #
+  #     - key: REDIS_URL
+  #       fromService:
+  #         type: keyvalue
+  #         name: mtm-keyvalue
+  #         property: connectionString
+  #
+  #     - key: WORKER_CONCURRENCY
+  #       value: "5"
+  #
+  #     - key: TASK_QUEUE_NAME
+  #       value: task-events
+  #
+  #     - key: LOG_LEVEL
+  #       value: info
 
   # =========================================================================
   #  4. Web — Angular frontend

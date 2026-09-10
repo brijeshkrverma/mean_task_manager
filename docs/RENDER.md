@@ -19,8 +19,16 @@ Wo file ab bani hui hai: [`render.yaml`](../render.yaml).
 |---|---|---|---|
 | `mtm-keyvalue` | Key Value | **free** | BullMQ ka queue (Redis-compatible) |
 | `mtm-api` | Web (Docker) | **free** | Express backend |
-| `mtm-worker` | Worker (Docker) | **$7/mo** | Background jobs |
 | `mtm-web` | Static site | **free** | Angular frontend |
+| ~~`mtm-worker`~~ | Worker | ~~$7/mo~~ | **Abhi band hai** — `render.yaml` me commented |
+
+**Total kharcha: $0/mo.**
+
+Worker jaan-boojh kar band rakha hai kyunki Render pe background workers ka
+free plan hota hi nahi. Iska matlab: API queue me jobs daalti rahegi par
+unhe uthane wala koi nahi hoga. Login, task CRUD — app ka baaki sab normal
+chalega. Chaalu karna ho to `render.yaml` me `mtm-worker` block uncomment
+karein (steps wahin comment me likhe hain).
 
 ### Teen cheezein jo pehle se pata honi chahiye
 
@@ -30,11 +38,8 @@ padega — hum **MongoDB Atlas** ka free M0 cluster use karenge (Step 1).
 
 **2. Background worker free nahi hai.** Render pe free instances sirf web
 services, static sites, Postgres aur Key Value ko milte hain. Worker paid
-hai (~$7/mo).
-👉 Abhi kharcha nahi karna? `render.yaml` me `mtm-worker` wala poora block
-comment kar dein. Baaki sab free chalega. API queue me jobs daalti rahegi,
-bas unhe uthane wala koi nahi hoga — jab worker chaalu karenge tab pending
-jobs process ho jayengi.
+hai (~$7/mo) — **isiliye wo abhi `render.yaml` me commented hai** aur poora
+setup $0 pe chal raha hai.
 
 **3. Free plan ki do limits jo aapko dikhengi:**
 - Free **web service 15 minute** bina traffic ke **so jaati hai**. Agli
@@ -119,16 +124,16 @@ password hota hai. Wo dashboard se bharni hoti hai.
 
 **`mtm-api` ▸ Environment ▸ `MONGO_URI`** ▸ Step 1 wali string paste ▸ **Save**
 
-**`mtm-worker` ▸ Environment ▸ `MONGO_URI`** ▸ **bilkul wahi string** paste ▸ **Save**
+Bas itna hi — worker abhi commented hai, to sirf ek jagah daalni hai.
 
-> Dono jagah alag-alag paste karna padta hai — `sync: false` wale secrets
-> services ke beech share nahi hote. Value **exactly same** honi chahiye,
-> warna worker doosre database me jhaankta rahega aur koi error bhi nahi
-> aayega. Ye debug karne me sabse painful bug hai.
+> Jab kabhi worker chaalu karein, uska `MONGO_URI` bhi alag se bharna padega
+> — `sync: false` wale secrets services ke beech share nahi hote. Value
+> **exactly same** honi chahiye, warna worker doosre database me jhaankta
+> rahega aur koi error bhi nahi aayega. Ye debug karne me sabse painful bug hai.
 
 `JWT_SECRET` aapko nahi bharna — `generateValue: true` ki wajah se Render ne
-khud strong random value bana di hai, aur worker use `fromService` se uthata
-hai. `REDIS_URL` bhi apne aap bhara hua hai.
+khud strong random value bana di hai. `REDIS_URL` bhi apne aap bhara hua hai,
+upar wali `mtm-keyvalue` service se.
 
 Save karte hi service redeploy hogi. Ab `mtm-api` green honi chahiye.
 
