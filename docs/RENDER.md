@@ -9,6 +9,9 @@ Dashboard pe jo message aaya tha —
 par ye features nahi milte. Iske liye repo root me `render.yaml` chahiye.
 Wo file ab bani hui hai: [`render.yaml`](../render.yaml).
 
+> Note: **PR Previews** ke liye paid workspace bhi chahiye (neeche dekhein).
+> **Auto-Deploy** free Hobby workspace pe bhi kaam karta hai.
+
 ---
 
 ## Pehle ye samajh lein
@@ -95,7 +98,7 @@ Render `render.yaml` repo se hi padhta hai, to wo pehle GitHub pe hona chahiye.
 ```bash
 git add render.yaml docs/ .github/ .gitignore api/ web/ worker/
 git commit -m "chore: add Render blueprint and CI/CD docs"
-git push origin main
+git push origin staging
 ```
 
 ---
@@ -108,7 +111,7 @@ git push origin main
    > thi jisse wo message aaya tha. Blueprint alag option hai.
 
 2. GitHub connect karein, `mean_task_manager` repo chunein
-3. Render `render.yaml` padh kar **chaaro services** dikhayega — verify karein
+3. Branch **`staging`** chunein (render.yaml wahi hai). Render **teen services** dikhayega — verify karein
 4. **Apply**
 
 Pehla deploy 5-10 minute lega (Docker images ban rahi hain). `mtm-api` is
@@ -209,30 +212,29 @@ second. Uske baad normal.
 
 ---
 
-## PR Previews kaise kaam karta hai
+## PR Previews — abhi available nahi
 
-`render.yaml` me ye likha hai:
+[`render.yaml`](../render.yaml) me `previews` block **commented** hai, aur wo
+jaan-boojh kar hai.
 
-```yaml
-previews:
-  generation: automatic
-  expireAfterDays: 5
-```
+Render ne Blueprint apply karte waqt ye error diya tha:
 
-Ab jab bhi koi PR khulega:
+> _Preview Environments are not available for Hobby workspaces_
 
-1. Render **saari services ka ek alag copy** banata hai — apna alag URL, apna
-   alag Key Value
-2. PR pe ek comment aata hai us URL ke saath
-3. Reviewer code padhne ke bajaye **chalta hua app** dekh sakta hai
-4. PR merge/close hote hi sab delete (ya 5 din baad apne aap)
+Preview Environments **paid (Professional) workspace** ka feature hai. Free
+Hobby workspace pe wo block rakhne se Blueprint hi reject ho jaata hai.
 
-Ye QA ke liye bahut bada farak hai — "screenshot bhejo" ki jagah "link kholo".
+**Kaam kya karta:** har PR pe Render saari services ka ek alag copy bana deta,
+apne alag URL pe — reviewer ko code padhne ke bajaye chalta hua app milta.
+PR merge/close hote hi sab delete.
 
-⚠️ **Preview environments ka MONGO_URI production wala hi hota hai** (`sync: false`
-secrets preview me copy ho jaate hain). Matlab PR preview aapke asli database
-me likh sakta hai. Team badi hone par Atlas me ek alag `task_manager_preview`
-database banayein aur preview ke liye alag value set karein.
+**Chaalu kaise karein:** workspace paid karne ke baad
+[`render.yaml`](../render.yaml) me `previews` wali teen line uncomment kar
+dein. Aur kuch nahi badalna.
+
+**Tab tak review kaise karein:** [`ci.yml`](../.github/workflows/ci.yml)
+har PR pe chalta hai, to code green hai ya nahi wo pata chalta rehta hai —
+bas chalta hua app dekhne ko nahi milega.
 
 ---
 

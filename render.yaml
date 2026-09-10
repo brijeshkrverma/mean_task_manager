@@ -15,12 +15,23 @@
 # ---------------------------------------------------------------------------
 #  previews: har pull request pe ek poora temporary environment
 # ---------------------------------------------------------------------------
-#  PR khulte hi Render neeche ki saari services ka ek alag copy bana deta hai,
-#  apne alag URL pe. PR band/merge hote hi wo sab apne aap delete ho jaata hai.
-#  Reviewer ko code padhne ke bajaye chalta hua app milta hai.
-previews:
-  generation: automatic
-  expireAfterDays: 5      # bhoole hue previews paisa na khaayein
+#  🔴 YE BAND HAI — Preview Environments Hobby (free) workspace pe milte hi
+#     nahi. Chaalu rakhne se Render Blueprint hi reject kar deta hai:
+#     "Preview Environments are not available for Hobby workspaces".
+#
+#  Kaam kya karta: PR khulte hi Render neeche ki saari services ka ek alag
+#  copy bana deta, apne alag URL pe. PR band/merge hote hi sab delete.
+#  Reviewer ko code padhne ke bajaye chalta hua app milta.
+#
+#  ▶ Workspace paid (Professional) karne par neeche ke teen line uncomment
+#    kar dein — aur kuch nahi badalna.
+#
+#  Tab tak PR review normal tareeke se: ci.yml PR pe chalta hai, to code
+#  green hai ya nahi wo pata chalta rehta hai.
+#
+# previews:
+#   generation: automatic
+#   expireAfterDays: 5      # bhoole hue previews paisa na khaayein
 
 services:
 
